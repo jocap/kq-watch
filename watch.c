@@ -29,6 +29,11 @@ int main(int argc, char *argv[]) {
 		 fail();
 	}
 
+	if (pledge("stdio", NULL) == -1) {
+		perror("pledge");
+		fail_clean();
+	}
+
 	if ((kq = kqueue()) == -1) {
 		perror("kqueue");
 		fail_clean();
