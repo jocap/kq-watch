@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
@@ -8,14 +7,18 @@
 #include <sys/event.h>
 #include <sys/time.h>
 
-#define fail() exit(EXIT_FAILURE)
-#define fail_clean() do { status = EXIT_FAILURE; goto finally; } while (0)
+#define try(x) if ((x) != -1) {}
+
+void fail() {
+	exit(EXIT_FAILURE);
+}
+
+void fail_with_error(char *s) {
+	perror(s);
+	exit(EXIT_FAILURE);
+}
 
 int main(int argc, char *argv[]) {
-	int status = EXIT_SUCCESS;
-	int fd, kq, n, i;
-	struct kevent event;
-
 	setbuf(stdout, NULL); // disable buffering even non-interactively
 
 	if (argc < 2) {
@@ -23,21 +26,13 @@ int main(int argc, char *argv[]) {
 		fail();
 	}
 
-	// 1. Open file
-	if ((fd = open(argv[1], O_RDONLY)) == -1) {
-		 perror(argv[1]);
-		 fail();
-	}
+	int fd;
+	try (fd = open(argv[1], O_RDONLY)) else fail_with_error(argv[1]);
 
-	if (pledge("stdio", NULL) == -1) {
-		perror("pledge");
-		fail_clean();
-	}
+	try (pledge("stdio", NULL)) else fail_with_error("pledge");
 
-	if ((kq = kqueue()) == -1) {
-		perror("kqueue");
-		fail_clean();
-	}
+	int kq;
+	try (kq = kqueue()) else fail_with_error("kqueue");
 
 	struct kevent change = { // event to watch for
 		.ident = fd,
@@ -48,43 +43,31 @@ int main(int argc, char *argv[]) {
 		.udata = NULL
 	};
 
-	// 2. Register event to watch for
-	if (kevent(kq, &change, 1, NULL, 0, NULL) == -1) {
-		perror("kevent");
-		fail_clean();
-	}
+	// Register event to watch for
+	try (kevent(kq, &change, 1, NULL, 0, NULL)) else fail_with_error("kevent");
+
 	if (change.flags & EV_ERROR) {
-		fprintf(stderr, "Event error: %s", strerror(change.data));
-		fail_clean();
+		fprintf(stderr, "event error: %s", strerror(change.data));
+		fail();
 	}
 
+	int n, i;
+	struct kevent event;
 	while (1) {
-		// 3. Wait for event
-		if ((n = kevent(kq, NULL, 0, &event, 1, NULL)) != 1) {
-			perror("kevent wait");
-			fail_clean();
-		} else if (n > 0) {
-			if (event.fflags & NOTE_WRITE) {
+		// Wait for event
+		try (n = kevent(kq, NULL, 0, &event, 1, NULL)) else fail_with_error("kevent wait");
+		if (n > 0) {
+			if (event.fflags & NOTE_WRITE)
 				printf("%s\n", argv[1]);
-			}
 			if (event.fflags & NOTE_RENAME)
-				fprintf(stderr, "Note: file was renamed\n");
+				fprintf(stderr, "note: file was renamed\n");
 			if (event.fflags & NOTE_DELETE) {
-				fprintf(stderr, "Error: file was deleted\n");
-				fail_clean();
+				fprintf(stderr, "error: file was deleted\n");
+				fail();
 			}
 		}
 	}
 
-finally:
-	if (close(kq) == -1) {
-		perror("close");
-		fail();
-	}
-	if (close(fd) == -1) {
-		perror("close");
-		fail();
-	}
-
-	exit(status);
+	exit(EXIT_SUCCESS);
+	// assume that the kernel closes the file descriptors
 }
