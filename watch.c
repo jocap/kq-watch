@@ -51,7 +51,7 @@ int main(int argc, char *argv[]) {
 		fail();
 	}
 
-	int n, i;
+	int n;
 	struct kevent event;
 	while (1) {
 		// Wait for event
