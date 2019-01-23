@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
@@ -18,16 +19,33 @@ void fail_with_error(char *s) {
 	exit(EXIT_FAILURE);
 }
 
+#define fail_with(...) {          \
+	fprintf(stderr, __VA_ARGS__); \
+	exit(EXIT_FAILURE);           \
+}
+
+bool initial = false; /* print one initial line at startup */
+
 int main(int argc, char *argv[]) {
+	size_t file = 1; /* argv index */
+
 	setbuf(stdout, NULL); // disable buffering even non-interactively
 
-	if (argc < 2) {
-		fprintf(stderr, "usage: %s file\n", argv[0]);
-		fail();
+	if (argc < 2) goto usage;
+	if (argc == 3) {
+		if (strncmp(argv[1], "-i", 2) == 0) {
+			file = 2;
+			initial = true;
+		} else {
+			goto usage;
+		}
 	}
 
 	int fd;
-	try (fd = open(argv[1], O_RDONLY)) else fail_with_error(argv[1]);
+	try (fd = open(argv[file], O_RDONLY)) else fail_with_error(argv[file]);
+
+	if (initial)
+		printf("%s\n", argv[file]);
 
 	try (pledge("stdio", NULL)) else fail_with_error("pledge");
 
@@ -46,28 +64,27 @@ int main(int argc, char *argv[]) {
 	// Register event to watch for
 	try (kevent(kq, &change, 1, NULL, 0, NULL)) else fail_with_error("kevent");
 
-	if (change.flags & EV_ERROR) {
-		fprintf(stderr, "event error: %s", strerror(change.data));
-		fail();
-	}
+	if (change.flags & EV_ERROR)
+		fail_with("event error: %s", strerror(change.data));
 
 	int n;
 	struct kevent event;
 	while (1) {
 		// Wait for event
-		try (n = kevent(kq, NULL, 0, &event, 1, NULL)) else fail_with_error("kevent wait");
+		try (n = kevent(kq, NULL, 0, &event, 1, NULL))
+			else fail_with_error("kevent wait");
 		if (n > 0) {
 			if (event.fflags & NOTE_WRITE)
-				printf("%s\n", argv[1]);
+				printf("%s\n", argv[file]);
 			if (event.fflags & NOTE_RENAME)
 				fprintf(stderr, "note: file was renamed\n");
-			if (event.fflags & NOTE_DELETE) {
-				fprintf(stderr, "error: file was deleted\n");
-				fail();
-			}
+			if (event.fflags & NOTE_DELETE)
+				fail_with("error: file was deleted\n");
 		}
 	}
 
-	exit(EXIT_SUCCESS);
 	// assume that the kernel closes the file descriptors
+
+usage:
+	fail_with("usage: %s [-i] file\n", argv[0]);
 }
