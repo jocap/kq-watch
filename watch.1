@@ -1,0 +1,48 @@
+.Dd $Mdocdate$
+.Dt WATCH 1
+.Os
+.Sh NAME
+.Nm watch
+.Nd a simple file watcher
+.\"
+.Sh SYNPOSIS
+.Nm watch
+.Op Fl i
+.Ar file
+.\"
+.Sh DESCRIPTION
+.Nm watch
+is a simple OpenBSD program that watches a given
+.Ar file
+for changes.
+When the file changes, its name (as specified in the arguments to
+.Nm watch )
+is printed on standard output.
+
+If the
+.Fl i
+argument is provided, an initial such line is printed when the
+program starts, before beginning to watch for changes.
+
+.Nm watch
+exits on SIGINT (C-c).
+.\"
+.Sh ERRORS
+If the watched file is deleted, a message is printed on standard
+error and the program exits with error code 1.
+
+If the file is renamed, a notice is printed on standard error, but
+the program keeps running.
+.\"
+.Sh EXAMPLES
+.Bd -literal -offset indent
+watch document.ms | while read; do
+	make document.pdf && kill -9 mupdf
+done
+.Ed
+.\"
+.Sh AUTHORS
+.Nm watch
+is written by
+.An John Ankarström ,
+available {on the web|by e-mail} at john{.|@}ankarstrom.se.
