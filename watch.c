@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <err.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
@@ -9,20 +10,6 @@
 #include <sys/time.h>
 
 #define try(x) if ((x) != -1) {}
-
-void fail() {
-	exit(EXIT_FAILURE);
-}
-
-void fail_with_error(char *s) {
-	perror(s);
-	exit(EXIT_FAILURE);
-}
-
-#define fail_with(...) {          \
-	fprintf(stderr, __VA_ARGS__); \
-	exit(EXIT_FAILURE);           \
-}
 
 bool initial = false; /* print one initial line at startup */
 
@@ -42,15 +29,15 @@ int main(int argc, char *argv[]) {
 	}
 
 	int fd;
-	try (fd = open(argv[file], O_RDONLY)) else fail_with_error(argv[file]);
+	try (fd = open(argv[file], O_RDONLY)) else err(1, "%s", argv[file]);
 
 	if (initial)
 		printf("%s\n", argv[file]);
 
-	try (pledge("stdio", NULL)) else fail_with_error("pledge");
+	try (pledge("stdio", NULL)) else err(1, "pledge");
 
 	int kq;
-	try (kq = kqueue()) else fail_with_error("kqueue");
+	try (kq = kqueue()) else err(1, "kqueue");
 
 	struct kevent change = { // event to watch for
 		.ident = fd,
@@ -62,29 +49,29 @@ int main(int argc, char *argv[]) {
 	};
 
 	// Register event to watch for
-	try (kevent(kq, &change, 1, NULL, 0, NULL)) else fail_with_error("kevent");
+	try (kevent(kq, &change, 1, NULL, 0, NULL)) else err(1, "kevent");
 
 	if (change.flags & EV_ERROR)
-		fail_with("event error: %s", strerror(change.data));
+		errx(1, "event error: %s", strerror(change.data));
 
 	int n;
 	struct kevent event;
 	while (1) {
 		// Wait for event
 		try (n = kevent(kq, NULL, 0, &event, 1, NULL))
-			else fail_with_error("kevent wait");
+			else err(1, "kevent wait");
 		if (n > 0) {
 			if (event.fflags & NOTE_WRITE)
 				printf("%s\n", argv[file]);
 			if (event.fflags & NOTE_RENAME)
-				fprintf(stderr, "note: file was renamed\n");
+				warnx("file was renamed\n");
 			if (event.fflags & NOTE_DELETE)
-				fail_with("error: file was deleted\n");
+				errx(1, "file was deleted\n");
 		}
 	}
 
 	// assume that the kernel closes the file descriptors
 
 usage:
-	fail_with("usage: %s [-i] file\n", argv[0]);
+	errx(1, "usage: %s [-i] file\n", argv[0]);
 }

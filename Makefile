@@ -1,6 +1,6 @@
 PREFIX = /usr/local
 
-CFLAGS = -Wall -Wno-missing-braces -Wextra -Wpedantic
+CFLAGS = -Wall -Wno-missing-braces -Wextra -Wpedantic -O2
 
 all: watch
 
