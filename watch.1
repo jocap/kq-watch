@@ -8,11 +8,11 @@
 .Sh SYNPOSIS
 .Nm watch
 .Op Fl i
-.Ar file
+.Ar file ...
 .\"
 .Sh DESCRIPTION
 .Nm watch
-is a simple OpenBSD program that watches a given
+is a simple OpenBSD program that watches any given
 .Ar file
 for changes.
 When the file changes, its name (as specified in the arguments to
@@ -21,24 +21,28 @@ is printed on standard output.
 
 If the
 .Fl i
-argument is provided, an initial such line is printed when the
-program starts, before beginning to watch for changes.
+argument is provided, an initial such line is printed when the program
+starts, before beginning to watch for changes.
 
 .Nm watch
 exits on SIGINT (C-c).
 .\"
 .Sh ERRORS
-If the watched file is deleted, a message is printed on standard
+If one of the watched files is deleted, a message is printed on standard
 error and the program exits with error code 1.
 
-If the file is renamed, a notice is printed on standard error, but
-the program keeps running.
+If a file is renamed, a notice is printed on standard error, but the
+program keeps running.
 .\"
 .Sh EXAMPLES
 .Bd -literal -offset indent
-watch document.ms | while read; do
-	make document.pdf && kill -9 mupdf
+$ watch *.ms | while read file; do
+	make ${file%.ms}.pdf && kill -9 mupdf
 done
+.Ed
+.Bd -literal -offset indent
+$ alias each='xargs -L0 -I {}'
+$ watch -i * | each cp {} /mnt/usb/
 .Ed
 .\"
 .Sh AUTHORS

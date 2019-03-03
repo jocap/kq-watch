@@ -8,70 +8,94 @@
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/time.h>
+#include <sys/resource.h>
 
-#define try(x) if ((x) != -1) {}
+#define LIMIT 256
 
-bool initial = false; /* print one initial line at startup */
+bool initial = false; // print one initial line at startup
 
 int main(int argc, char *argv[]) {
-	size_t file = 1; /* argv index */
+	char **filenames;
+	int first_file_index, kq;
+	size_t file_count;
+	struct kevent changes[LIMIT];
+	struct kevent events[LIMIT];
+	struct rlimit rlp;
+
+	file_count = argc - 1;
+	first_file_index = 1; // index of first file argument
 
 	setbuf(stdout, NULL); // disable buffering even non-interactively
 
-	if (argc < 2) goto usage;
-	if (argc == 3) {
-		if (strncmp(argv[1], "-i", 2) == 0) {
-			file = 2;
+	if (argc < 2) goto usage; // quit if no arguments
+	if (argv[1][0] == '-') {
+		if (argc < 3) goto usage; // quit if no filenames
+
+		/* adjust indices */
+		file_count = argc - 2;
+		first_file_index = 2;
+
+		if (strcmp(argv[1], "-i") == 0)
 			initial = true;
-		} else {
+		else
 			goto usage;
-		}
 	}
 
-	int fd;
-	try (fd = open(argv[file], O_RDONLY)) else err(1, "%s", argv[file]);
+	if (file_count > LIMIT)
+		errx(1, "more than %d files", LIMIT);
 
-	if (initial)
-		printf("%s\n", argv[file]);
+	if ((kq = kqueue()) == -1) err(1, "kqueue");
 
-	try (pledge("stdio", NULL)) else err(1, "pledge");
+	/* save filenames by file descriptor */
+	if (getrlimit(RLIMIT_NOFILE, &rlp) == -1)
+		err(1, "getrlimit");
+	if ((filenames = reallocarray(NULL, rlp.rlim_max, sizeof(char **))) == NULL)
+		err(1, "reallocarray");
 
-	int kq;
-	try (kq = kqueue()) else err(1, "kqueue");
+	/* add each file to change list */
+	for (int i = first_file_index; i < argc; i++) {
+		int fd;
+		if ((fd = open(argv[i], O_RDONLY)) == -1)
+			err(1, "%s", argv[i]);
 
-	struct kevent change = { // event to watch for
-		.ident = fd,
-		.filter = EVFILT_VNODE,
-		.flags = EV_ADD | EV_CLEAR,
-		.fflags = NOTE_WRITE | NOTE_RENAME | NOTE_DELETE,
-		.data = 0,
-		.udata = NULL
-	};
+		filenames[fd] = argv[i];
 
-	// Register event to watch for
-	try (kevent(kq, &change, 1, NULL, 0, NULL)) else err(1, "kevent");
+		if (initial)
+			printf("%s\n", argv[i]);
 
-	if (change.flags & EV_ERROR)
-		errx(1, "event error: %s", strerror(change.data));
+		struct kevent change = { // event to watch for
+			.ident = fd,
+			.filter = EVFILT_VNODE,
+			.flags = EV_ADD | EV_CLEAR,
+			.fflags = NOTE_WRITE | NOTE_DELETE,
+			.data = 0,
+			.udata = NULL
+		};
 
-	int n;
-	struct kevent event;
-	while (1) {
-		// Wait for event
-		try (n = kevent(kq, NULL, 0, &event, 1, NULL))
-			else err(1, "kevent wait");
+		changes[i - first_file_index] = change;
+	}
+
+	if (pledge("stdio", NULL) == -1) err(1, "pledge");
+
+	for (;;) {
+		int n;
+		/* register changes and wait for events */
+		if ((n = kevent(kq, changes, file_count, events, file_count, NULL)) == -1)
+			err(1, "kevent wait");
 		if (n > 0) {
-			if (event.fflags & NOTE_WRITE)
-				printf("%s\n", argv[file]);
-			if (event.fflags & NOTE_RENAME)
-				warnx("file was renamed\n");
-			if (event.fflags & NOTE_DELETE)
-				errx(1, "file was deleted\n");
+			for (int i = 0; i < n; i++) {
+				if (events[i].flags & EV_ERROR)
+					errx(1, "event error: %s", strerror(events[i].data));
+				if (events[i].fflags & NOTE_WRITE)
+					printf("%s\n", filenames[events[i].ident]);
+				if (events[i].fflags & NOTE_DELETE)
+					errx(1, "%s was deleted", filenames[events[i].ident]);
+			}
 		}
 	}
 
-	// assume that the kernel closes the file descriptors
+	return 0; // assume that the kernel closes the file descriptors
 
 usage:
-	errx(1, "usage: %s [-i] file\n", argv[0]);
+	fprintf(stderr, "usage: %s [-i] file\n", argv[0]);
 }
