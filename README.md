@@ -1,3 +1,3 @@
 # kq-watch
 This repository has moved.
-See http://git.ankarstrom.se/kq-watch/
+See http://ankarstrom.se/~john/git/when/
